@@ -14,7 +14,7 @@ class parallelFileTransfer():
         self.LOCK = threading.Lock()
     def get_filename(self):
         end = len(self.FILE_PATH)-1
-        while self.FILE_PATH[end] != '/' or self.FILE_PATH[end]!= '\\':
+        while self.FILE_PATH[end] != '/' and self.FILE_PATH[end]!= '\\':
             end -= 1
         return self.FILE_PATH[end+1:]
         
@@ -59,10 +59,10 @@ class parallelFileTransfer():
         if not self.FILE_PATH:
             raise ValueError("Invalid File Path")
         
-        self.send_metadata(ip, self.PORT)
         
         chunks = self.split_file(self.FILE_PATH)
         self.CHUNK_COUNT = len(chunks)
+        self.send_metadata(ip, self.PORT)
 
         threads = []
         for i, chunk in enumerate(chunks):
@@ -126,7 +126,7 @@ class parallelFileTransfer():
             self.CHUNK_COUNT = int(metadata[0])
             self.sender_ip = addr[0]
             self.sender_port = addr[1]
-            self.SAVE_PATH = '/' + metadata[1]
+            self.SAVE_PATH = './' + metadata[1]
 
             s.close()
         
