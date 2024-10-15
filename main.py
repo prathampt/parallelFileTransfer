@@ -12,6 +12,7 @@ class parallelFileTransfer():
         self.FILE_PATH = file_path
         self.CHUNK_COUNT = 0 # To be recieved from the sender
         self.LOCK = threading.Lock()
+
     def get_filename(self):
         end = len(self.FILE_PATH)-1
         while self.FILE_PATH[end] != '/' and self.FILE_PATH[end]!= '\\':
@@ -19,6 +20,8 @@ class parallelFileTransfer():
         return self.FILE_PATH[end+1:]
         
     def send_metadata(self, ip, port):
+        """Function to send the initial data about the file."""
+        
         filename = self.get_filename()
         metadata = f"{self.CHUNK_COUNT}\n{filename}"
      
@@ -28,7 +31,6 @@ class parallelFileTransfer():
             s.recv(1024)  # Recieve ACK
             s.close()
         return 
-
 
     def send_chunk(self, chunk_data, chunk_index, ip, port):
         """Function to send a chunk."""
@@ -59,14 +61,13 @@ class parallelFileTransfer():
         if not self.FILE_PATH:
             raise ValueError("Invalid File Path")
         
-        
         chunks = self.split_file(self.FILE_PATH)
         self.CHUNK_COUNT = len(chunks)
         self.send_metadata(ip, self.PORT)
 
         threads = []
         for i, chunk in enumerate(chunks):
-            port = self.PORT + i  # Assign a unique port for each connection
+            port = self.PORT + i + 1  # Assign a unique port for each connection
             thread = threading.Thread(target=self.send_chunk, args=(chunk, i, ip, port))
             threads.append(thread)
             thread.start()
@@ -109,14 +110,16 @@ class parallelFileTransfer():
         chunks[chunk_index] = data
         self.LOCK.release()
         
-
     def reassemble_file(self, chunks):
         """Function to reassemble the file from chunks."""
         
         with open(self.SAVE_PATH, 'wb') as file:
             for chunk in chunks:
                 file.write(chunk)
+
     def recv_metadata(self, port):
+        """Function to receive the initial data about the file."""
+
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(('', port))
             s.listen()
@@ -131,19 +134,18 @@ class parallelFileTransfer():
             s.close()
         
     def receive_file(self):
-        ip_address = socket.gethostbyname(socket.gethostname())
         """Main function to receive file chunks over multiple connections."""
+        
+        ip_address = socket.gethostbyname(socket.gethostname())
         print(f"Ready to Receive File on IP Address: {ip_address} starting from base Port: {self.PORT}")
         
         self.recv_metadata(self.PORT)
         
         chunks = [None] * self.CHUNK_COUNT  # Initialize a list to store received chunks
 
-
-
         threads = []
         for i in range(self.CHUNK_COUNT):
-            port = self.PORT + i
+            port = self.PORT + i + 1
             thread = threading.Thread(target=self.start_receiving, args=(port, chunks))
             threads.append(thread)
             thread.start()
