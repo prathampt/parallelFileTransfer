@@ -54,7 +54,8 @@ class parallelFileTransfer():
             s.sendall(metadata.encode('utf-8'))
             s.recv(1024)  # Recieve ACK
             s.close()
-        return 
+
+        print("Meta-data sent!")
 
     def create_connection_pool(self, ip):
         """Create a persistent connection pool."""
@@ -63,6 +64,8 @@ class parallelFileTransfer():
             conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             conn.connect((ip, self.PORT + i + 1))
             self.CONNECTION_POOL.append(conn)
+
+        print("Connection Pool Created")
      
     def send_chunk(self, conn, chunk_data, chunk_index):
         """Send compressed chunk data."""
@@ -72,6 +75,8 @@ class parallelFileTransfer():
         conn.recv(1024)  # ACK
         conn.sendall(compressed_data)  # Send compressed chunk data
         conn.recv(1024)  # Receive final ACK
+
+        print(f"Chunk {chunk_index} Sent!")
 
     def compress_chunk(self, chunk):
         """Compress chunk using zlib."""
@@ -85,6 +90,7 @@ class parallelFileTransfer():
         chunks = []
 
         self.CHUNK_SIZE = max(self.CHUNK_SIZE, int(file_size / (self.MAX_CONNECTIONS * 4)) + 1)
+        print(f"File Size: {file_size}, Chunk Size: {self.CHUNK_SIZE}, Chunk Count: {self.CHUNK_COUNT}")
 
         with open(self.FILE_PATH, 'rb') as file:
             while file.tell() < file_size:
@@ -109,13 +115,12 @@ class parallelFileTransfer():
                 for i, chunk in enumerate(chunks):
                     conn = self.CONNECTION_POOL[i % len(self.CONNECTION_POOL)]
                     executor.submit(self.send_chunk, conn, chunk, i)
+        except Exception as e:
+            print(f"Error Occured!\n{e}")
         finally:
             for conn in self.CONNECTION_POOL:
                 conn.close()  # Ensure all connections are closed
             print("Connections closed.")
-
-
-        
 
     # def handle_receive(self, conn):
     #     """Function to handle incoming connections and store file chunks."""
@@ -136,44 +141,65 @@ class parallelFileTransfer():
 
     #     return data, chunk_index
 
-    async def async_receive_chunk(self, reader, writer, chunk_index, chunks):
+    async def async_receive_chunk(self, reader, writer, chunks):
         """Receive chunk asynchronously."""
 
         # writer.write(f"{chunk_index}\n".encode())
         # await writer.drain()
         
-        chunk_index = int((await reader.read(1024)).decode())
-        writer.write(b'ACK')  # Send an "ACK" message to the client
-        await writer.drain()   # Ensure the message is sent
-        
-    
+        try:
+            chunk_index = int((await reader.read(1024)).decode('utf-8'))
+            writer.write(b'ACK')  # Send an "ACK" message to the client
+            await writer.drain()   # Ensure the message is sent
+            
+            data = await reader.read()
+            try:
+                data = zlib.decompress(data)
+            except zlib.error as e:
+                print(f"Decompression failed for chunk {chunk_index}: {e}")
+                return
+            chunks[chunk_index] = data  # Store the received chunk
+            print(f'Chunk {chunk_index} received')
 
-        data = await reader.read()
-        data = zlib.decompress(data)  # Decompress
-        chunks[chunk_index] = data  # Store the received chunk
-        print(f'Chunk {chunk_index} received')
+            # Send acknowledgment back to the client
+            writer.write(b'ACK')  # Send an "ACK" message to the client
+            await writer.drain()   # Ensure the message is sent
+            # print(f'ACK sent for chunk {chunk_index}')
 
-        # Send acknowledgment back to the client
-        writer.write(b'ACK')  # Send an "ACK" message to the client
-        await writer.drain()   # Ensure the message is sent
-        print(f'ACK sent for chunk {chunk_index}')
+        except Exception as e:
+            print(f"Error in receiving chunk {chunk_index}: {e}")
 
-        writer.close()  # Close the connection
-        await writer.wait_closed()
+        finally:
+            # Ensure writer is closed after we're done
+            writer.close()
+            await writer.wait_closed()
 
     async def async_receive_file(self, ip):
         """Receive file asynchronously."""
         chunks = [None] * self.CHUNK_COUNT
         tasks = []        
-        for i in range(self.CHUNK_COUNT):
-            port = self.PORT + i + 1
-            server = await asyncio.start_server(lambda r, w: self.async_receive_chunk(r, w, i, chunks), "0.0.0.0", port)
-            # server = await asyncio.start_server(lambda r, w: self.async_receive_chunk(r, w, i, chunks), ip, port)
-            
-            tasks.append(server.serve_forever())
-        await asyncio.gather(*tasks)
 
-        self.reassemble_file(chunks)
+        try:
+            for i in range(self.CHUNK_COUNT):
+                port = self.PORT + i + 1
+                server = await asyncio.start_server(
+                    lambda r, w, i=i: self.async_receive_chunk(r, w, i, chunks), ip, port
+                )
+                
+                tasks.append(server.serve_forever())
+                print(f'Started server for chunk {i} on port {port}')
+
+            await asyncio.gather(*tasks)
+
+        except Exception as e:
+            print(f"Error during file transfer: {e}")
+        finally:
+            # Ensure servers are closed in all cases
+            for server in tasks:
+                server.close()
+                await server.wait_closed()
+
+            self.reassemble_file(chunks)
 
     # def start_receiving(self, port, chunks):
     #     """Function to start the server to receive a file chunk."""
@@ -210,7 +236,7 @@ class parallelFileTransfer():
             self.sender_ip = addr[0]
             self.sender_port = addr[1]
             self.SAVE_PATH = os.path.join(self.SAVE_PATH, metadata[1])
-            s.send(b"ACK")
+            # s.send(b"ACK")
 
             s.close()
 
