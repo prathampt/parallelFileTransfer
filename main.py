@@ -4,7 +4,7 @@ import threading
 import zlib
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
-# import time
+import time
 
 class parallelFileTransfer():
         
@@ -12,8 +12,8 @@ class parallelFileTransfer():
         self.PORT = 50000
         self.MAX_CONNECTIONS = 16
         self.CHUNK_SIZE = 1024 * 1024  # 1 MB per chunk (minimum size)
-        self.SAVE_PATH = save_path
-        self.FILE_PATH = file_path
+        self.SAVE_PATH = save_path # input from reciever side
+        self.FILE_PATH = file_path #input from sender side
         self.CHUNK_COUNT = 0 # To be recieved from the sender
         self.LOCK = threading.Lock()
         self.CONNECTION_POOL = []
@@ -84,7 +84,7 @@ class parallelFileTransfer():
         file_size = os.path.getsize(self.FILE_PATH)
         chunks = []
 
-        self.CHUNK_SIZE = max(self.CHUNK_SIZE, file_size / (self.MAX_CONNECTIONS * 4) + 1)
+        self.CHUNK_SIZE = max(self.CHUNK_SIZE, int(file_size / (self.MAX_CONNECTIONS * 4)) + 1)
 
         with open(self.FILE_PATH, 'rb') as file:
             while file.tell() < file_size:
@@ -97,21 +97,25 @@ class parallelFileTransfer():
 
         if not self.FILE_PATH:
             raise ValueError("Invalid File Path")
+        try:
+            chunks = self.split_file()
+            self.CHUNK_COUNT = len(chunks)
+            self.send_metadata(ip, self.PORT)
+            self.create_connection_pool(ip)
+
+            print("Connection with the receiver established successfully!")
+            
+            with ThreadPoolExecutor(max_workers=self.MAX_CONNECTIONS) as executor:
+                for i, chunk in enumerate(chunks):
+                    conn = self.CONNECTION_POOL[i % len(self.CONNECTION_POOL)]
+                    executor.submit(self.send_chunk, conn, chunk, i)
+        finally:
+            for conn in self.CONNECTION_POOL:
+                conn.close()  # Ensure all connections are closed
+            print("Connections closed.")
+
+
         
-        chunks = self.split_file()
-        self.CHUNK_COUNT = len(chunks)
-
-        self.create_connection_pool(ip)
-
-        self.send_metadata(ip)
-        
-        print("Connection with the receiver established successfully!")
-
-        # Thread pool for pipelined chunk sending
-        with ThreadPoolExecutor(max_workers=self.MAX_CONNECTIONS) as executor:
-            for i, chunk in enumerate(chunks):
-                conn = self.CONNECTION_POOL[i % len(self.CONNECTION_POOL)]  # Round-robin across connections
-                executor.submit(self.send_chunk, conn, chunk, i)
 
     # def handle_receive(self, conn):
     #     """Function to handle incoming connections and store file chunks."""
@@ -135,25 +139,38 @@ class parallelFileTransfer():
     async def async_receive_chunk(self, reader, writer, chunk_index, chunks):
         """Receive chunk asynchronously."""
 
-        writer.write(f"{chunk_index}\n".encode())
-        await writer.drain()
-        await reader.read(1024)  # Wait for ACK
-        compressed_chunk = await reader.read(self.CHUNK_SIZE)
-        chunk = zlib.decompress(compressed_chunk)  # Decompress
-        self.LOCK.acquire()
-        chunks[chunk_index] = chunk
-        self.LOCK.release()
+        # writer.write(f"{chunk_index}\n".encode())
+        # await writer.drain()
+        
+        chunk_index = int((await reader.read(1024)).decode())
+        writer.write(b'ACK')  # Send an "ACK" message to the client
+        await writer.drain()   # Ensure the message is sent
+        
+    
 
-    async def async_receive_file(self, ip, chunk_count):
+        data = await reader.read()
+        data = zlib.decompress(data)  # Decompress
+        chunks[chunk_index] = data  # Store the received chunk
+        print(f'Chunk {chunk_index} received')
+
+        # Send acknowledgment back to the client
+        writer.write(b'ACK')  # Send an "ACK" message to the client
+        await writer.drain()   # Ensure the message is sent
+        print(f'ACK sent for chunk {chunk_index}')
+
+        writer.close()  # Close the connection
+        await writer.wait_closed()
+
+    async def async_receive_file(self, ip):
         """Receive file asynchronously."""
-        chunks = [None] * chunk_count
-        tasks = []
-
-        for i in range(chunk_count):
-            reader, writer = await asyncio.open_connection(ip, self.BASE_PORT + i)
-            task = self.async_receive_chunk(reader, writer, i, chunks)
-            tasks.append(task)
-
+        chunks = [None] * self.CHUNK_COUNT
+        tasks = []        
+        for i in range(self.CHUNK_COUNT):
+            port = self.PORT + i + 1
+            server = await asyncio.start_server(lambda r, w: self.async_receive_chunk(r, w, i, chunks), "0.0.0.0", port)
+            # server = await asyncio.start_server(lambda r, w: self.async_receive_chunk(r, w, i, chunks), ip, port)
+            
+            tasks.append(server.serve_forever())
         await asyncio.gather(*tasks)
 
         self.reassemble_file(chunks)
@@ -192,21 +209,22 @@ class parallelFileTransfer():
             self.CHUNK_COUNT = int(metadata[0])
             self.sender_ip = addr[0]
             self.sender_port = addr[1]
-            self.SAVE_PATH = metadata[1]
+            self.SAVE_PATH = os.path.join(self.SAVE_PATH, metadata[1])
+            s.send(b"ACK")
 
             s.close()
 
     def receive_file(self):
-        """Main function to receive file."""
 
         ip_address = socket.gethostbyname(socket.gethostname())
+        # ip_address="10.100.97.49"
         print(f"Ready to receive file on IP: {ip_address}, base port: {self.PORT}")
 
         # Receive metadata
         self.recv_metadata(self.PORT)
 
         # Start receiving file asynchronously
-        asyncio.run(self.async_receive_file(ip_address, self.CHUNK_COUNT))
+        asyncio.run(self.async_receive_file(ip_address))
         
     # def receive_file(self):
     #     """Main function to receive file chunks over multiple connections."""
