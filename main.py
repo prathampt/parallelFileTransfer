@@ -47,7 +47,7 @@ class parallelFileTransfer():
         """Function to send the initial data about the file."""
         
         filename = self.get_filename()
-        metadata = f"{self.CHUNK_COUNT}\n{filename}"
+        metadata = f"{self.CHUNK_COUNT}\n{self.CHUNK_SIZE}\n{filename}"
      
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((ip, port))
@@ -60,7 +60,7 @@ class parallelFileTransfer():
     def create_connection_pool(self, ip):
         """Create a persistent connection pool."""
 
-        for i in range(self.MAX_CONNECTIONS):
+        for i in range(min(self.MAX_CONNECTIONS, self.CHUNK_COUNT)):
             conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             conn.connect((ip, self.PORT + i + 1))
             self.CONNECTION_POOL.append(conn)
@@ -70,31 +70,41 @@ class parallelFileTransfer():
     def send_chunk(self, conn, chunk_data, chunk_index):
         """Send compressed chunk data."""
 
-        compressed_data = self.compress_chunk(chunk_data)
-        conn.sendall(f'{chunk_index}'.encode('utf-8'))  # Send chunk index
+        # compressed_data = self.compress_chunk(chunk_data)
+        conn.sendall(f'{chunk_index}\n{len(chunk_data)}'.encode('utf-8'))  # Send chunk index
         conn.recv(1024)  # ACK
-        conn.sendall(compressed_data)  # Send compressed chunk data
+        print(f"ChunkIndex: {chunk_index}")
+        conn.sendall(chunk_data)  # Send compressed chunk data
         conn.recv(1024)  # Receive final ACK
-
         print(f"Chunk {chunk_index} Sent!")
 
     def compress_chunk(self, chunk):
         """Compress chunk using zlib."""
 
-        return zlib.compress(chunk)
+        return zlib.compress(chunk, level=6)
 
     def split_file(self):
         """Split the file into small chunks."""
 
         file_size = os.path.getsize(self.FILE_PATH)
-        chunks = []
 
-        self.CHUNK_SIZE = max(self.CHUNK_SIZE, int(file_size / (self.MAX_CONNECTIONS * 4)) + 1)
-        print(f"File Size: {file_size}, Chunk Size: {self.CHUNK_SIZE}, Chunk Count: {self.CHUNK_COUNT}")
-
+        # Open the file and read its entire content
         with open(self.FILE_PATH, 'rb') as file:
-            while file.tell() < file_size:
-                chunks.append(file.read(self.CHUNK_SIZE))
+            file_data = file.read()
+
+        # Compress the file data using zlib
+        compressed_data = zlib.compress(file_data)
+        compressed_size = len(compressed_data)
+
+        # Calculate the chunk size, ensuring it's large enough to distribute data across connections
+        self.CHUNK_SIZE = max(self.CHUNK_SIZE, int(compressed_size / (self.MAX_CONNECTIONS * 4)) + 1)
+        print(f"Original File Size: {file_size}, Compressed Size: {compressed_size}, Chunk Size: {self.CHUNK_SIZE}")
+
+        # Split the compressed data into chunks
+        chunks = [compressed_data[i:i + self.CHUNK_SIZE] for i in range(0, compressed_size, self.CHUNK_SIZE)]
+
+        # Update chunk count based on the number of created chunks
+        self.CHUNK_COUNT = len(chunks)
 
         return chunks
 
@@ -113,7 +123,7 @@ class parallelFileTransfer():
             
             with ThreadPoolExecutor(max_workers=self.MAX_CONNECTIONS) as executor:
                 for i, chunk in enumerate(chunks):
-                    conn = self.CONNECTION_POOL[i % len(self.CONNECTION_POOL)]
+                    conn = self.CONNECTION_POOL[i % self.MAX_CONNECTIONS]
                     executor.submit(self.send_chunk, conn, chunk, i)
         except Exception as e:
             print(f"Error Occured!\n{e}")
@@ -153,6 +163,12 @@ class parallelFileTransfer():
             await writer.drain()   # Ensure the message is sent
             
             data = await reader.read()
+
+            # Send acknowledgment back to the client
+            writer.write(b'ACK')  # Send an "ACK" message to the client
+            await writer.drain()   # Ensure the message is sent
+            print(f'ACK sent for chunk {chunk_index}')
+
             try:
                 data = zlib.decompress(data)
             except zlib.error as e:
@@ -161,32 +177,29 @@ class parallelFileTransfer():
             chunks[chunk_index] = data  # Store the received chunk
             print(f'Chunk {chunk_index} received')
 
-            # Send acknowledgment back to the client
-            writer.write(b'ACK')  # Send an "ACK" message to the client
-            await writer.drain()   # Ensure the message is sent
-            # print(f'ACK sent for chunk {chunk_index}')
-
         except Exception as e:
             print(f"Error in receiving chunk {chunk_index}: {e}")
 
-        finally:
-            # Ensure writer is closed after we're done
-            writer.close()
-            await writer.wait_closed()
+        # finally:
+        #     # Ensure writer is closed after we're done
+        #     writer.close()
+        #     await writer.wait_closed()
 
     async def async_receive_file(self, ip):
         """Receive file asynchronously."""
         chunks = [None] * self.CHUNK_COUNT
         tasks = []        
+        servers = []
 
         try:
             for i in range(self.CHUNK_COUNT):
                 port = self.PORT + i + 1
                 server = await asyncio.start_server(
-                    lambda r, w, i=i: self.async_receive_chunk(r, w, i, chunks), ip, port
+                    lambda r, w: self.async_receive_chunk(r, w, chunks), ip, port
                 )
                 
                 tasks.append(server.serve_forever())
+                servers.append(server)
                 print(f'Started server for chunk {i} on port {port}')
 
             await asyncio.gather(*tasks)
@@ -195,7 +208,7 @@ class parallelFileTransfer():
             print(f"Error during file transfer: {e}")
         finally:
             # Ensure servers are closed in all cases
-            for server in tasks:
+            for server in servers:
                 server.close()
                 await server.wait_closed()
 
