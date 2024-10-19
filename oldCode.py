@@ -6,18 +6,17 @@ class parallelFileTransfer():
         
     def __init__(self, file_path = "", save_path = "") -> None:
         self.PORT = 50000
-        self.MAX_PORT = 100 
+        self.MAX_CONNECTIONS = 16 
         self.CHUNK_SIZE = 1024 * 1024  # 1 MB per chunk # Later to be decided dynamically
         self.SAVE_PATH = save_path
         self.FILE_PATH = file_path
         self.CHUNK_COUNT = 0 # To be recieved from the sender
         self.LOCK = threading.Lock()
 
+    # Functions of SENDER...
+
     def get_filename(self):
-        end = len(self.FILE_PATH)-1
-        while self.FILE_PATH[end] != '/' and self.FILE_PATH[end]!= '\\':
-            end -= 1
-        return self.FILE_PATH[end+1:]
+        return os.path.basename(self.FILE_PATH)
         
     def send_metadata(self, ip, port):
         """Function to send the initial data about the file."""
@@ -30,7 +29,8 @@ class parallelFileTransfer():
             s.sendall(metadata.encode('utf-8'))
             s.recv(1024)  # Recieve ACK
             s.close()
-        return 
+
+        print("Meta-data sent!")
 
     def send_chunk(self, chunk_data, chunk_index, ip, port):
         """Function to send a chunk."""
@@ -48,6 +48,8 @@ class parallelFileTransfer():
         """Function to split the file into small chunks."""
 
         file_size = os.path.getsize(file_path)
+
+        self.CHUNK_SIZE = max(self.CHUNK_SIZE, int(file_size / 16 + 1))
         
         with open(file_path, 'rb') as file:
             chunks = []
@@ -129,7 +131,7 @@ class parallelFileTransfer():
             self.CHUNK_COUNT = int(metadata[0])
             self.sender_ip = addr[0]
             self.sender_port = addr[1]
-            self.SAVE_PATH = './' + metadata[1]
+            self.SAVE_PATH += metadata[1]
 
             s.close()
         

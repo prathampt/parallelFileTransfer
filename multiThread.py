@@ -185,10 +185,6 @@ class parallelFileTransfer():
 
         while bytes_received < chunk_size:
             packet = conn.recv(min(4096, chunk_size - bytes_received))  # Receive in chunks of up to 4096 bytes
-            if not packet:
-                print(f"Connection lost while receiving chunk {chunk_index}")
-                conn.close()
-                return
         
             data.extend(packet)
             bytes_received += len(packet)
