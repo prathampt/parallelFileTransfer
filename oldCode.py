@@ -2,6 +2,9 @@ import socket
 import os
 import threading
 import argparse
+import time
+import sys
+
 class parallelFileTransfer():
         
     def __init__(self, file_path = "", save_path = "") -> None:
@@ -12,6 +15,22 @@ class parallelFileTransfer():
         self.FILE_PATH = file_path
         self.CHUNK_COUNT = 0 # To be recieved from the sender
         self.LOCK = threading.Lock()
+        self.FILE_SIZE = 0
+        self.FILE_DONE = 10 ** (-5)
+        self.START_TIME = time.time()
+
+    def display_speed(self):
+        # Calculate transfer speed and remaining time
+        elapsed_time = time.time() - self.START_TIME
+        speed = self.FILE_DONE / elapsed_time if elapsed_time > 0 else 0
+        percent_complete = (self.FILE_DONE / self.FILE_SIZE) * 100
+        time_remaining = (self.FILE_SIZE - self.FILE_DONE) / speed if speed > 0 else 0
+
+        # Display progress on terminal
+        sys.stdout.write(f"\rSent: {self.FILE_DONE} / {self.FILE_SIZE} bytes ({percent_complete:.2f}%) | "
+                        f"Speed: {speed / (1024 * 1024):.2f} MB/s | "
+                        f"Time remaining: {time_remaining:.2f} s\n")
+        sys.stdout.flush()
 
     # Functions of SENDER...
 
@@ -22,7 +41,7 @@ class parallelFileTransfer():
         """Function to send the initial data about the file."""
         
         filename = self.get_filename()
-        metadata = f"{self.CHUNK_COUNT}\n{filename}"
+        metadata = f"{self.CHUNK_COUNT}\n{filename}\n{self.FILE_SIZE}"
      
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((ip, port))
@@ -42,12 +61,15 @@ class parallelFileTransfer():
             s.recv(1024)  # Recieve ACK
             
             s.sendall(chunk_data) # Send chunk data
+            self.FILE_DONE += len(chunk_data)
+            self.display_speed()
             s.close()
 
     def split_file(self, file_path):
         """Function to split the file into small chunks."""
 
         file_size = os.path.getsize(file_path)
+        self.FILE_SIZE = file_size
 
         self.CHUNK_SIZE = max(self.CHUNK_SIZE, int(file_size / 16 + 1))
         
@@ -90,6 +112,8 @@ class parallelFileTransfer():
                 part = conn.recv(1024)
                 if not part: break
                 data += part
+                self.FILE_DONE += len(part)
+                self.display_speed()
 
         finally:
             conn.close()
@@ -132,6 +156,7 @@ class parallelFileTransfer():
             self.sender_ip = addr[0]
             self.sender_port = addr[1]
             self.SAVE_PATH += metadata[1]
+            self.FILE_SIZE = int(metadata[2])
 
             s.close()
         
@@ -156,7 +181,7 @@ class parallelFileTransfer():
             thread.join()
 
         self.reassemble_file(chunks)
-        print("File reassembled successfully!")
+        print("File received successfully!")
 
 if __name__ == "__main__":
     # Initialize argument parser
