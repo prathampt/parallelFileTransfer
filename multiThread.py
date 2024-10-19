@@ -77,20 +77,29 @@ class parallelFileTransfer():
 
         file_size = os.path.getsize(self.FILE_PATH)
 
-        with open(self.FILE_PATH, 'rb') as file:
-            file_data = file.read()
+        self.CHUNK_SIZE = max(self.CHUNK_SIZE, int(file_size / (self.MAX_CONNECTIONS * 4)) + 1)
 
-        compressed_data = zlib.compress(file_data)
-        compressed_size = len(compressed_data)
-
-        self.CHUNK_SIZE = max(self.CHUNK_SIZE, int(compressed_size / (self.MAX_CONNECTIONS * 4)) + 1)
-        print(f"Original File Size: {file_size}, Compressed Size: {compressed_size}, Chunk Size: {self.CHUNK_SIZE}")
-
-        # Split the compressed data into chunks
-        chunks = [compressed_data[i:i + self.CHUNK_SIZE] for i in range(0, compressed_size, self.CHUNK_SIZE)]
-        self.CHUNK_COUNT = len(chunks)
+        chunks = []
+        with open(file_path, 'rb') as file:
+            while file.tell() < file_size:
+                chunks.append(file.read(self.CHUNK_SIZE))
 
         return chunks
+
+        # compressed_data = zlib.compress(file_data)
+        # compressed_size = len(compressed_data)
+
+        # compressed_data = file_data
+        # compressed_size = file_size
+
+        # self.CHUNK_SIZE = max(self.CHUNK_SIZE, int(compressed_size / (self.MAX_CONNECTIONS * 4)) + 1)
+        # print(f"Original File Size: {file_size}, Compressed Size: {compressed_size}, Chunk Size: {self.CHUNK_SIZE}")
+
+        # # Split the compressed data into chunks
+        # chunks = [compressed_data[i:i + self.CHUNK_SIZE] for i in range(0, compressed_size, self.CHUNK_SIZE)]
+        # self.CHUNK_COUNT = len(chunks)
+
+        # return chunks
     
     def send_file(self, ip):
         """Main function to send file chunks."""
@@ -131,11 +140,14 @@ class parallelFileTransfer():
             metadata = conn.recv(1024).decode('utf-8')
             metadata = metadata.split('\n')
             self.CHUNK_COUNT = int(metadata[0])
+            self.CHUNK_SIZE = int(metadata[1])
             self.sender_ip = addr[0]
             self.sender_port = addr[1]
-            self.SAVE_PATH = os.path.join(self.SAVE_PATH, metadata[1])
+            self.SAVE_PATH = os.path.join(self.SAVE_PATH, metadata[2])
 
             s.close()
+
+        print("Meta-data received!")
 
     def create_server_pool(self):
         """Create a persistent connection pool."""
@@ -168,11 +180,23 @@ class parallelFileTransfer():
         chunk_size = int(chunk_size)
         conn.sendall(b'ACK')  # Acknowledge chunk index
 
-        data = conn.recv(chunk_size)
+        data = bytearray()  # Store the incoming data
+        bytes_received = 0
+
+        while bytes_received < chunk_size:
+            packet = conn.recv(min(4096, chunk_size - bytes_received))  # Receive in chunks of up to 4096 bytes
+            if not packet:
+                print(f"Connection lost while receiving chunk {chunk_index}")
+                conn.close()
+                return
+        
+            data.extend(packet)
+            bytes_received += len(packet)
+
         conn.sendall(b'ACK') # Final ACK
 
         with self.LOCK:
-            chunks.append(data)     
+            chunks[chunk_index] = data     
 
     def reassemble_file(self, chunks):
         """Function to reassemble the file from chunks and decompress it in the same file."""
@@ -181,13 +205,13 @@ class parallelFileTransfer():
             for chunk in chunks:
                 file.write(chunk)
         
-        with open(self.SAVE_PATH, 'rb') as compressed_file:
-            compressed_data = compressed_file.read()
+        # with open(self.SAVE_PATH, 'rb') as compressed_file:
+        #     compressed_data = compressed_file.read()
 
-        decompressed_data = zlib.decompress(compressed_data)
+        # decompressed_data = zlib.decompress(compressed_data)
 
-        with open(self.SAVE_PATH, 'wb') as decompressed_file:
-            decompressed_file.write(decompressed_data)
+        # with open(self.SAVE_PATH, 'wb') as decompressed_file:
+        #     decompressed_file.write(decompressed_data)
 
         print("File Decompressed Successfully")       
 
