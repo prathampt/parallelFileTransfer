@@ -122,106 +122,7 @@ class parallelFileTransfer():
                 conn.close()  # Ensure all connections are closed
             print("Connections closed.")
 
-    # def handle_receive(self, conn):
-    #     """Function to handle incoming connections and store file chunks."""
-
-    #     try:
-    #         # Receive chunk index first
-    #         chunk_index = int(conn.recv(1024).decode('utf-8'))
-    #         conn.sendall(b'ACK')  # Acknowledge the index
-    #         # Receive chunk data
-    #         data = b""
-    #         while True:
-    #             part = conn.recv(1024)
-    #             if not part: break
-    #             data += part
-
-    #     finally:
-    #         conn.close()
-
-    #     return data, chunk_index
-
-    async def async_receive_chunk(self, reader, writer, chunks):
-        """Receive chunk asynchronously."""
-
-        # writer.write(f"{chunk_index}\n".encode())
-        # await writer.drain()
-        
-        try:
-            chunk_index = int((await reader.read(1024)).decode('utf-8'))
-            writer.write(b'ACK')  # Send an "ACK" message to the client
-            await writer.drain()   # Ensure the message is sent
-            
-            data = await reader.read()
-            try:
-                data = zlib.decompress(data)
-            except zlib.error as e:
-                print(f"Decompression failed for chunk {chunk_index}: {e}")
-                return
-            chunks[chunk_index] = data  # Store the received chunk
-            print(f'Chunk {chunk_index} received')
-
-            # Send acknowledgment back to the client
-            writer.write(b'ACK')  # Send an "ACK" message to the client
-            await writer.drain()   # Ensure the message is sent
-            # print(f'ACK sent for chunk {chunk_index}')
-
-        except Exception as e:
-            print(f"Error in receiving chunk {chunk_index}: {e}")
-
-        finally:
-            # Ensure writer is closed after we're done
-            writer.close()
-            await writer.wait_closed()
-
-    async def async_receive_file(self, ip):
-        """Receive file asynchronously."""
-        chunks = [None] * self.CHUNK_COUNT
-        tasks = []        
-
-        try:
-            for i in range(self.CHUNK_COUNT):
-                port = self.PORT + i + 1
-                server = await asyncio.start_server(
-                    lambda r, w, i=i: self.async_receive_chunk(r, w, i, chunks), ip, port
-                )
-                
-                tasks.append(server.serve_forever())
-                print(f'Started server for chunk {i} on port {port}')
-
-            await asyncio.gather(*tasks)
-
-        except Exception as e:
-            print(f"Error during file transfer: {e}")
-        finally:
-            # Ensure servers are closed in all cases
-            for server in tasks:
-                server.close()
-                await server.wait_closed()
-
-            self.reassemble_file(chunks)
-
-    # def start_receiving(self, port, chunks):
-    #     """Function to start the server to receive a file chunk."""
-
-    #     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-
-    #         s.bind(('', port))
-    #         s.listen()
-    #         conn, addr = s.accept()
-    #         data, chunk_index = self.handle_receive(conn)
-    #         s.close()
-
-    #     self.LOCK.acquire()
-    #     chunks[chunk_index] = data
-    #     self.LOCK.release()
-        
-    def reassemble_file(self, chunks):
-        """Function to reassemble the file from chunks."""
-        
-        with open(self.SAVE_PATH, 'wb') as file:
-            for chunk in chunks:
-                file.write(chunk)
+#<__________________________________________________________Receiver Part___________________>
 
     def recv_metadata(self, port):
         """Function to receive the initial data about the file."""
@@ -235,15 +136,216 @@ class parallelFileTransfer():
             self.CHUNK_COUNT = int(metadata[0])
             self.sender_ip = addr[0]
             self.sender_port = addr[1]
-            self.SAVE_PATH = os.path.join(self.SAVE_PATH, metadata[1])
+            self.SAVE_PATH = os.path.join(self.SAVE_PATH, metadata[2])
+            self.CHUNK_SIZE = int(metadata[1])
             # s.send(b"ACK")
 
             s.close()
+    # async def stop_when_done(self, servers):
+    #     while self.RECEIVED_CHUNKS < self.CHUNK_COUNT:
+    #         await asyncio.sleep(0.1)
+    #     for server in servers:
+    #         server.close()
+    #         await server.wait_closed()
+    #         # print("Closing servers")
+
+            
+    # async def async_receive_chunk(self, reader, writer, chunks, servers):
+    #     """Receive chunk asynchronously."""       
+    #     try:
+    #         if self.RECEIVED_CHUNKS >= self.CHUNK_COUNT:
+    #             for server in servers:
+    #                 server.close()
+    #                 await server.wait_closed()
+    #                 print("Closing servers")
+                    
+
+    #             return
+            
+    #         chunk_metadata = (await reader.read(1024)).decode('utf-8')
+    #         print(chunk_metadata)
+    #         chunk_index, chunk_size = chunk_metadata.split('\n')
+    #         chunk_index = int(chunk_index)
+    #         chunk_size = int(chunk_size)
+    #         writer.write(b'ACK')  # Send an "ACK" message to the client            
+    #         await writer.drain()   # Ensure the message is sent
+    #         print(f'Received chunk index: {chunk_index}')
+            
+    #         data = await reader.readexactly(chunk_size)
+    #         # Send acknowledgment back to the client
+    #         writer.write(b'ACK')  # Send an "ACK" message to the client
+    #         await writer.drain()   # Ensure the message is sent
+    #         print(f'ACK sent for chunk {chunk_index}')
+            
+            
+    #         chunks[chunk_index] = data  # Store the received chunk
+    #         self.LOCK.acquire()
+    #         self.RECEIVED_CHUNKS += 1
+    #         print(f"Received {self.RECEIVED_CHUNKS} chunks")
+    #         self.LOCK.release()
+    #         if self.RECEIVED_CHUNKS == self.CHUNK_COUNT:
+    #             throw Exception("All chunks received")
+                
+    #     except Exception as e:
+    #         print(f"Error in receiving chunk {chunk_index}: {e}")
+    #     finally:
+    #         self.stop_when_done(servers)
+
+    # async def async_receive_file(self, ip):
+    #     """Receive file asynchronously."""
+    #     chunks = [None] * self.CHUNK_COUNT
+    #     tasks = []        
+    #     servers = []
+    #     try:
+    #         for i in range(min(self.CHUNK_COUNT, self.MAX_CONNECTIONS)):
+    #             port = self.PORT + i + 1
+    #             server = await asyncio.start_server(
+    #                 lambda r, w: self.async_receive_chunk(r, w, chunks, servers), "0.0.0.0", port
+    #             )
+                
+    #             tasks.append(server.serve_forever())
+    #             servers.append(server)
+    #             print(f'Started server for chunk {i} on port {port}')
+    #         # tasks.append(self.stop_when_done(servers))
+    #         await asyncio.gather(*tasks)
+    #         print("All servers")
+
+    #     except Exception as e:
+    #         print(f"Error during file transfer: {e}")
+    #     finally:
+           
+
+    #         self.reassemble_file(chunks)
+
+        
+    # def reassemble_file(self, chunks):
+    #     """Function to reassemble the file from chunks and decompress it in the same file."""
+        
+    #     # Write the file from chunks
+    #     with open(self.SAVE_PATH, 'wb') as file:
+    #         for chunk in chunks:
+    #             file.write(chunk)
+    #     print("Compressed Filed Reassembled!")
+
+    #     # Read the reassembled file and decompress it
+    #     with open(self.SAVE_PATH, 'rb') as compressed_file:
+    #         compressed_data = compressed_file.read()
+
+    #     # Decompress the file data
+    #     decompressed_data = zlib.decompress(compressed_data)
+
+    #     # Overwrite the same file with decompressed data
+    #     with open(self.SAVE_PATH, 'wb') as decompressed_file:
+    #         decompressed_file.write(decompressed_data)
+    #     print("Decompressed")
+        
+    # def receive_file(self):
+    #     self.RECEIVED_CHUNKS = 0
+    #     ip_address = socket.gethostbyname(socket.gethostname())
+    #     # ip_address="10.100.97.49"
+    #     print(f"Ready to receive file on IP: {ip_address}, base port: {self.PORT}")
+
+    #     # Receive metadata
+    #     self.recv_metadata(self.PORT)
+
+    #     # Start receiving file asynchronously
+    #     asyncio.run(self.async_receive_file(ip_address))
+    async def stop_when_done(self, servers):
+        while self.RECEIVED_CHUNKS < self.CHUNK_COUNT:
+            await asyncio.sleep(0.1)
+        for server in servers:
+            server.close()
+            await server.wait_closed()
+
+    async def async_receive_chunk(self, reader, writer, chunks, servers):
+        """Receive chunk asynchronously."""
+        try:
+            if self.RECEIVED_CHUNKS >= self.CHUNK_COUNT:
+                raise AllChunksReceivedError("All chunks have been received.")
+
+            chunk_metadata = (await reader.read(1024)).decode('utf-8')
+            print(chunk_metadata)
+            chunk_index, chunk_size = chunk_metadata.split('\n')
+            chunk_index = int(chunk_index)
+            chunk_size = int(chunk_size)
+
+            writer.write(b'ACK')  # Send an "ACK" message to the client            
+            await writer.drain()   # Ensure the message is sent
+            print(f'Received chunk index: {chunk_index}')
+
+            data = await reader.readexactly(chunk_size)
+            writer.write(b'ACK')  # Send an "ACK" message to the client
+            await writer.drain()   # Ensure the message is sent
+            print(f'ACK sent for chunk {chunk_index}')
+
+            chunks[chunk_index] = data  # Store the received chunk
+
+            async with self.LOCK:  # Use asyncio Lock for thread safety
+                self.RECEIVED_CHUNKS += 1
+                print(f"Received {self.RECEIVED_CHUNKS} chunks")
+                if self.RECEIVED_CHUNKS == self.CHUNK_COUNT:
+                    raise AllChunksReceivedError("All chunks have been received.")
+
+        except AllChunksReceivedError as e:
+            print(e)
+            # Closing servers once all chunks are received
+            for server in servers:
+                server.close()
+                await server.wait_closed()
+            print("Closing servers")
+
+        except Exception as e:
+            print(f"Error in receiving chunk {chunk_index}: {e}")
+
+    async def async_receive_file(self, ip):
+        """Receive file asynchronously."""
+        chunks = [None] * self.CHUNK_COUNT
+        tasks = []        
+        servers = []
+        try:
+            for i in range(min(self.CHUNK_COUNT, self.MAX_CONNECTIONS)):
+                port = self.PORT + i + 1
+                server = await asyncio.start_server(
+                    lambda r, w: self.async_receive_chunk(r, w, chunks, servers), "0.0.0.0", port
+                )
+
+                tasks.append(server.serve_forever())
+                servers.append(server)
+                print(f'Started server for chunk {i} on port {port}')
+
+            await asyncio.gather(*tasks)
+            print("All servers are stopped")
+
+        except AllChunksReceivedError:
+            print("All chunks received, reassembling the file.")
+        except Exception as e:
+            print(f"Error during file transfer: {e}")
+        finally:
+            self.reassemble_file(chunks)
+
+    def reassemble_file(self, chunks):
+        """Function to reassemble the file from chunks and decompress it in the same file."""
+        # Write the file from chunks
+        with open(self.SAVE_PATH, 'wb') as file:
+            for chunk in chunks:
+                file.write(chunk)
+        print("Compressed File Reassembled!")
+
+        # Read the reassembled file and decompress it
+        with open(self.SAVE_PATH, 'rb') as compressed_file:
+            compressed_data = compressed_file.read()
+
+        # Decompress the file data
+        decompressed_data = zlib.decompress(compressed_data)
+
+        # Overwrite the same file with decompressed data
+        with open(self.SAVE_PATH, 'wb') as decompressed_file:
+            decompressed_file.write(decompressed_data)
+        print("File Decompressed Successfully")
 
     def receive_file(self):
-
+        self.RECEIVED_CHUNKS = 0
         ip_address = socket.gethostbyname(socket.gethostname())
-        # ip_address="10.100.97.49"
         print(f"Ready to receive file on IP: {ip_address}, base port: {self.PORT}")
 
         # Receive metadata
@@ -251,31 +353,9 @@ class parallelFileTransfer():
 
         # Start receiving file asynchronously
         asyncio.run(self.async_receive_file(ip_address))
+
         
-    # def receive_file(self):
-    #     """Main function to receive file chunks over multiple connections."""
-        
-    #     ip_address = socket.gethostbyname(socket.gethostname())
-    #     print(f"Ready to Receive File on IP Address: {ip_address} starting from base Port: {self.PORT}")
-        
-    #     self.recv_metadata(self.PORT)
-    #     print("Connection with the sender established successfully!")
-
-    #     chunks = [None] * self.CHUNK_COUNT  # Initialize a list to store received chunks
-
-    #     threads = []
-    #     for i in range(self.CHUNK_COUNT):
-    #         port = self.PORT + i + 1
-    #         thread = threading.Thread(target=self.start_receiving, args=(port, chunks))
-    #         threads.append(thread)
-    #         thread.start()
-
-    #     for thread in threads:
-    #         thread.join()
-
-    #     self.reassemble_file(chunks)
-    #     print("File reassembled successfully!")
-
+   
 
 if __name__ == "__main__":
 
