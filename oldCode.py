@@ -46,7 +46,7 @@ class parallelFileTransfer():
         for ip in ip_list:
             if not ip.startswith("127."):
                 return ip
-        return None
+        return "127.0.0.1\nOnly LocalHost Found. Kindly put your fqdn IP at sender side!"
 
     # Functions of SENDER...
 
@@ -134,7 +134,7 @@ class parallelFileTransfer():
                 part = conn.recv(1024)
                 if not part: break
                 data += part
-                
+
         except Exception as e:
             print("Error Occured: ", e)                            
 
@@ -212,7 +212,6 @@ class parallelFileTransfer():
             thread.join()
 
         self.reassemble_file(chunks)
-        print("File received successfully!")
 
 if __name__ == "__main__":
     # Initialize argument parser
@@ -242,6 +241,9 @@ if __name__ == "__main__":
         pft = parallelFileTransfer(file_path=args.file_path)
         pft.send_file(ip=args.ip)
         print("File Sent Successfully!")
+        nowTime = time.time()
+        minutes, seconds = divmod(nowTime - pft.START_TIME, 60)
+        print(f"Time taken: {minutes} min {seconds} sec")
 
     elif args.role == "receiver":
         # Handle missing save path
@@ -250,6 +252,10 @@ if __name__ == "__main__":
 
         pft = parallelFileTransfer(save_path=args.save_path)
         pft.receive_file()
+        print("File received successfully!")
+        nowTime = time.time()
+        minutes, seconds = divmod(nowTime - pft.START_TIME, 60)
+        print(f"Time taken: {minutes} min {seconds} sec")
 
     else:
         print("Invalid role. Please use -r 'sender' or 'receiver'.")
