@@ -32,6 +32,19 @@ class parallelFileTransfer():
                         f"Time remaining: {time_remaining:.2f} s\n")
         sys.stdout.flush()
 
+    def get_external_ip(self):
+        hostname = socket.gethostname()
+        ip_addresses = socket.getaddrinfo(hostname, None, socket.AF_INET, socket.SOCK_STREAM)
+        
+        # Extracting only IPv4 addresses
+        ip_list = [ip[4][0] for ip in ip_addresses if ip[0] == socket.AF_INET]
+        
+        # Exclude local addresses (127.0.0.1) and pick the first external IP
+        for ip in ip_list:
+            if not ip.startswith("127."):
+                return ip
+        return None
+
     # Functions of SENDER...
 
     def get_filename(self):
@@ -63,12 +76,12 @@ class parallelFileTransfer():
                 s.recv(1024)  # Recieve ACK
                 
                 s.sendall(chunk_data) # Send chunk data
-                self.FILE_DONE += len(chunk_data)
+                with self.LOCK:
+                  self.FILE_DONE += len(chunk_data)
                 self.display_speed()
                 s.close()
         except Exception as e:
             print("Error Occured: ", e)
-            
 
     def split_file(self, file_path):
         """Function to split the file into small chunks."""
@@ -117,7 +130,8 @@ class parallelFileTransfer():
                 part = conn.recv(1024)
                 if not part: break
                 data += part
-                self.FILE_DONE += len(part)
+                with self.LOCK:
+                    self.FILE_DONE += len(part)
                 self.display_speed()
         except Exception as e:
             print("Error Occured: ", e)                            
@@ -174,7 +188,7 @@ class parallelFileTransfer():
     def receive_file(self):
         """Main function to receive file chunks over multiple connections."""
 
-        ip_address = socket.gethostbyname(socket.getfqdn())
+        ip_address = self.get_external_ip()
         print(f"Ready to Receive File on IP Address: {ip_address}")
         
         self.recv_metadata(self.PORT)
