@@ -99,19 +99,22 @@ class parallelFileTransfer():
     def start_receiving(self, port, chunks):
         """Function to start the server to receive a file chunk."""
 
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:    
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind(('', port))
+                s.listen()
+                conn, addr = s.accept()
+                print("Connection Established")
+                data, chunk_index = self.handle_receive(conn)
+                s.close()
 
-            s.bind(('', port))
-            s.listen()
-            conn, addr = s.accept()
-            print("Connection Established")
-            data, chunk_index = self.handle_receive(conn)
-            s.close()
-
-        self.LOCK.acquire()
-        chunks[chunk_index] = data
-        self.LOCK.release()
-        
+            self.LOCK.acquire()
+            chunks[chunk_index] = data
+            self.LOCK.release()
+        except Exception as e:
+            print("Error Occured: ", e)
+            
     def reassemble_file(self, chunks):
         """Function to reassemble the file from chunks."""
         
@@ -123,6 +126,7 @@ class parallelFileTransfer():
         """Function to receive the initial data about the file."""
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind(('', port))
             s.listen()
             conn, addr = s.accept()
