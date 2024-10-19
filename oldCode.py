@@ -55,29 +55,33 @@ class parallelFileTransfer():
         
         filename = self.get_filename()
         metadata = f"{self.CHUNK_COUNT}\n{filename}\n{self.FILE_SIZE}"
-     
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect((ip, port))
-            s.sendall(metadata.encode('utf-8'))
-            s.recv(1024)  # Recieve ACK
-            s.close()
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((ip, port))
+                s.sendall(metadata.encode('utf-8'))
+                s.recv(1024)  # Recieve ACK
+                s.close()
 
-        print("Meta-data sent!")
+            print("Meta-data sent!")
+        except Exception as e:
+            print("Error Occured: ", e)            
 
     def send_chunk(self, chunk_data, chunk_index, ip, port):
         """Function to send a chunk."""
-
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect((ip, port))
-            
-            s.sendall(f'{chunk_index}'.encode('utf-8')) # Sending chunk index 
-            s.recv(1024)  # Recieve ACK
-            
-            s.sendall(chunk_data) # Send chunk data
-            with self.LOCK:
-                self.FILE_DONE += len(chunk_data)
-            self.display_speed()
-            s.close()
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((ip, port))
+                
+                s.sendall(f'{chunk_index}'.encode('utf-8')) # Sending chunk index 
+                s.recv(1024)  # Recieve ACK
+                
+                s.sendall(chunk_data) # Send chunk data
+                with self.LOCK:
+                  self.FILE_DONE += len(chunk_data)
+                self.display_speed()
+                s.close()
+        except Exception as e:
+            print("Error Occured: ", e)
 
     def split_file(self, file_path):
         """Function to split the file into small chunks."""
@@ -129,6 +133,8 @@ class parallelFileTransfer():
                 with self.LOCK:
                     self.FILE_DONE += len(part)
                 self.display_speed()
+        except Exception as e:
+            print("Error Occured: ", e)                            
 
         finally:
             conn.close()
@@ -138,19 +144,21 @@ class parallelFileTransfer():
     def start_receiving(self, port, chunks):
         """Function to start the server to receive a file chunk."""
 
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:    
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind(('', port))
+                s.listen()
+                conn, addr = s.accept()
+                data, chunk_index = self.handle_receive(conn)
+                s.close()
 
-            s.bind(('', port))
-            s.listen()
-            conn, addr = s.accept()
-            print("Connection Established")
-            data, chunk_index = self.handle_receive(conn)
-            s.close()
-
-        self.LOCK.acquire()
-        chunks[chunk_index] = data
-        self.LOCK.release()
-        
+            self.LOCK.acquire()
+            chunks[chunk_index] = data
+            self.LOCK.release()
+        except Exception as e:
+            print("Error Occured: ", e)
+            
     def reassemble_file(self, chunks):
         """Function to reassemble the file from chunks."""
         
@@ -173,7 +181,9 @@ class parallelFileTransfer():
             self.SAVE_PATH += metadata[1]
             self.FILE_SIZE = int(metadata[2])
 
-            s.close()
+                s.close()
+        except Exception as e:
+            print("Error Occured: ", e)
         
     def receive_file(self):
         """Main function to receive file chunks over multiple connections."""
