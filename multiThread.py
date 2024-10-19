@@ -169,9 +169,27 @@ class parallelFileTransfer():
         conn.sendall(b'ACK')  # Acknowledge chunk index
 
         data = conn.recv(chunk_size)
+        conn.sendall(b'ACK') # Final ACK
 
         with self.LOCK:
-            chunks.append(data)            
+            chunks.append(data)     
+
+    def reassemble_file(self, chunks):
+        """Function to reassemble the file from chunks and decompress it in the same file."""
+
+        with open(self.SAVE_PATH, 'wb') as file:
+            for chunk in chunks:
+                file.write(chunk)
+        
+        with open(self.SAVE_PATH, 'rb') as compressed_file:
+            compressed_data = compressed_file.read()
+
+        decompressed_data = zlib.decompress(compressed_data)
+
+        with open(self.SAVE_PATH, 'wb') as decompressed_file:
+            decompressed_file.write(decompressed_data)
+
+        print("File Decompressed Successfully")       
 
     def receive_file(self):
         """Main function to receive file chunks."""
@@ -199,6 +217,8 @@ class parallelFileTransfer():
             for conn in self.SERVER_POOL:
                 conn.close()  # Ensure all servers are closed
             print("Servers closed.")
+
+            self.reassemble_file(chunks)
 
 
 if __name__ == "__main__":
