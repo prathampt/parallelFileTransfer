@@ -16,7 +16,7 @@ class parallelFileTransfer():
         self.CHUNK_COUNT = 0 # To be recieved from the sender
         self.LOCK = threading.Lock()
         self.FILE_SIZE = 0
-        self.FILE_DONE = 10 ** (-5)
+        self.FILE_DONE = 1
         self.START_TIME = time.time()
 
     def display_speed(self):
@@ -27,10 +27,13 @@ class parallelFileTransfer():
         time_remaining = (self.FILE_SIZE - self.FILE_DONE) / speed if speed > 0 else 0
 
         # Display progress on terminal
-        sys.stdout.write(f"\rSent: {self.FILE_DONE} / {self.FILE_SIZE} bytes ({percent_complete:.2f}%) | "
-                        f"Speed: {speed / (1024 * 1024):.2f} MB/s | "
-                        f"Time remaining: {time_remaining:.2f} s\n")
-        sys.stdout.flush()
+        with self.LOCK:
+            sys.stdout.write("\033[2J\033[H")  # Clear screen and move cursor to the top left
+            sys.stdout.flush()
+            sys.stdout.write(f"\rSent: {self.FILE_DONE} / {self.FILE_SIZE} bytes ({percent_complete:.2f}%) | "
+                            f"Speed: {speed / (1024 * 1024):.2f} MB/s | "
+                            f"Time remaining: {time_remaining:.2f} s\n")
+            sys.stdout.flush()
 
     def get_external_ip(self):
         hostname = socket.gethostname()
@@ -77,9 +80,10 @@ class parallelFileTransfer():
                 
                 s.sendall(chunk_data) # Send chunk data
                 with self.LOCK:
-                  self.FILE_DONE += len(chunk_data)
+                    self.FILE_DONE += len(chunk_data)
                 self.display_speed()
                 s.close()
+                
         except Exception as e:
             print("Error Occured: ", e)
 
@@ -130,9 +134,7 @@ class parallelFileTransfer():
                 part = conn.recv(1024)
                 if not part: break
                 data += part
-                with self.LOCK:
-                    self.FILE_DONE += len(part)
-                self.display_speed()
+                
         except Exception as e:
             print("Error Occured: ", e)                            
 
@@ -151,6 +153,9 @@ class parallelFileTransfer():
                 s.listen()
                 conn, addr = s.accept()
                 data, chunk_index = self.handle_receive(conn)
+                with self.LOCK:
+                    self.FILE_DONE += len(data)
+                self.display_speed()
                 s.close()
 
             self.LOCK.acquire()
@@ -169,17 +174,18 @@ class parallelFileTransfer():
     def recv_metadata(self, port):
         """Function to receive the initial data about the file."""
 
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(('', port))
-            s.listen()
-            conn, addr = s.accept()
-            metadata = conn.recv(1024).decode('utf-8')
-            metadata = metadata.split('\n')
-            self.CHUNK_COUNT = int(metadata[0])
-            self.sender_ip = addr[0]
-            self.sender_port = addr[1]
-            self.SAVE_PATH += metadata[1]
-            self.FILE_SIZE = int(metadata[2])
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('', port))
+                s.listen()
+                conn, addr = s.accept()
+                metadata = conn.recv(1024).decode('utf-8')
+                metadata = metadata.split('\n')
+                self.CHUNK_COUNT = int(metadata[0])
+                self.sender_ip = addr[0]
+                self.sender_port = addr[1]
+                self.SAVE_PATH += metadata[1]
+                self.FILE_SIZE = int(metadata[2])
 
                 s.close()
         except Exception as e:
