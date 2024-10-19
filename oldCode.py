@@ -1,7 +1,7 @@
 import socket
 import os
 import threading
-
+import argparse
 class parallelFileTransfer():
         
     def __init__(self, file_path = "", save_path = "") -> None:
@@ -158,28 +158,42 @@ class parallelFileTransfer():
         self.reassemble_file(chunks)
         print("File reassembled successfully!")
 
-
 if __name__ == "__main__":
+    # Initialize argument parser
+    parser = argparse.ArgumentParser(description="Parallel File Transfer")
 
-    print("Welcome to Parallel File Transfer...\n")
-    print("Send File: 1")
-    print("Receive File: 0")
-    choice = int(input("Enter Choice: "))
+    # Add arguments
+    parser.add_argument("-r", "--role", help="Specify the role as 'sender' or 'receiver'", choices=['sender', 'receiver'])
+    parser.add_argument("file_path", nargs='?', help="Path of the file to transfer (only for sender)")
+    parser.add_argument("ip", nargs='?', help="IP address of the receiver (only for sender)")
+    parser.add_argument("-s", "--save_path", help="Path to save the file (only for receiver)")
 
-    if choice:
-        file_path = input("Please enter the path of file to transfer: ")
+    # Parse the arguments
+    args = parser.parse_args()
+
+    # Main logic based on role
+    if args.role == "sender":
+        # Handle missing file path
+        if not args.file_path:
+            args.file_path = input("Please enter the path of the file to transfer: ")
+
+        # Handle missing IP
+        if not args.ip:
+            args.ip = input("Please enter the IP of the receiver: ")
+
         print("Please make sure your receiver is ready!")
-        ip = input("Enter the IP of Receiver: ")
-
-        pft = parallelFileTransfer(file_path=file_path)
-
-        pft.send_file(ip=ip)
-
+        
+        pft = parallelFileTransfer(file_path=args.file_path)
+        pft.send_file(ip=args.ip)
         print("File Sent Successfully!")
 
-    else:
-        save_path = input("Please enter the path to save file: ")
+    elif args.role == "receiver":
+        # Handle missing save path
+        if not args.save_path:
+            args.save_path = input("Please enter the path to save the file: ")
 
-        pft = parallelFileTransfer(save_path=save_path)
-        
+        pft = parallelFileTransfer(save_path=args.save_path)
         pft.receive_file()
+
+    else:
+        print("Invalid role. Please use -r 'sender' or 'receiver'.")

@@ -132,8 +132,6 @@ class parallelFileTransfer():
                 conn.close()  # Ensure all connections are closed
             print("Connections closed.")
 
-#<__________________________________________________________Receiver Part___________________>
-
     def recv_metadata(self, port):
         """Function to receive the initial data about the file."""
 
