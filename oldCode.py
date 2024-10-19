@@ -137,9 +137,9 @@ class parallelFileTransfer():
         
     def receive_file(self):
         """Main function to receive file chunks over multiple connections."""
-        
-        ip_address = socket.gethostbyname(socket.gethostname())
-        print(f"Ready to Receive File on IP Address: {ip_address} starting from base Port: {self.PORT}")
+
+        ip_address = socket.gethostbyname(socket.getfqdn())
+        print(f"Ready to Receive File on IP Address: {ip_address}")
         
         self.recv_metadata(self.PORT)
         
