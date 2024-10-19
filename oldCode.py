@@ -26,26 +26,31 @@ class parallelFileTransfer():
         
         filename = self.get_filename()
         metadata = f"{self.CHUNK_COUNT}\n{filename}\n{self.FILE_SIZE}"
-     
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect((ip, port))
-            s.sendall(metadata.encode('utf-8'))
-            s.recv(1024)  # Recieve ACK
-            s.close()
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((ip, port))
+                s.sendall(metadata.encode('utf-8'))
+                s.recv(1024)  # Recieve ACK
+                s.close()
 
-        print("Meta-data sent!")
+            print("Meta-data sent!")
+        except Exception as e:
+            print("Error Occured: ", e)            
 
     def send_chunk(self, chunk_data, chunk_index, ip, port):
         """Function to send a chunk."""
-
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect((ip, port))
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((ip, port))
+                
+                s.sendall(f'{chunk_index}'.encode('utf-8')) # Sending chunk index 
+                s.recv(1024)  # Recieve ACK
+                
+                s.sendall(chunk_data) # Send chunk data
+                s.close()
+        except Exception as e:
+            print("Error Occured: ", e)
             
-            s.sendall(f'{chunk_index}'.encode('utf-8')) # Sending chunk index 
-            s.recv(1024)  # Recieve ACK
-            
-            s.sendall(chunk_data) # Send chunk data
-            s.close()
 
     def split_file(self, file_path):
         """Function to split the file into small chunks."""
@@ -113,7 +118,8 @@ class parallelFileTransfer():
                 part = conn.recv(1024)
                 if not part: break
                 data += part
-
+        except Exception as e:
+            print("Error Occured: ", e)            
         finally:
             conn.close()
 
@@ -128,7 +134,6 @@ class parallelFileTransfer():
                 s.bind(('', port))
                 s.listen()
                 conn, addr = s.accept()
-                print("Connection Established")
                 data, chunk_index = self.handle_receive(conn)
                 s.close()
 
@@ -147,21 +152,24 @@ class parallelFileTransfer():
 
     def recv_metadata(self, port):
         """Function to receive the initial data about the file."""
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind(('', port))
+                s.listen()
+                conn, addr = s.accept()
+                metadata = conn.recv(1024).decode('utf-8')
+                metadata = metadata.split('\n')
+                self.CHUNK_COUNT = int(metadata[0])
+                self.sender_ip = addr[0]
+                self.sender_port = addr[1]
+                self.SAVE_PATH += metadata[1]
+                self.FILE_SIZE = int(metadata[2])
+                
 
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            s.bind(('', port))
-            s.listen()
-            conn, addr = s.accept()
-            metadata = conn.recv(1024).decode('utf-8')
-            metadata = metadata.split('\n')
-            self.CHUNK_COUNT = int(metadata[0])
-            self.sender_ip = addr[0]
-            self.sender_port = addr[1]
-            self.SAVE_PATH += metadata[1]
-            self.FILE_SIZE = metadata[2]
-
-            s.close()
+                s.close()
+        except Exception as e:
+            print("Error Occured: ", e)
         
     def receive_file(self):
         """Main function to receive file chunks over multiple connections."""
