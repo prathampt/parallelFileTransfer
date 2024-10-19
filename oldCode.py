@@ -2,6 +2,9 @@ import socket
 import os
 import threading
 import argparse
+import time
+import sys
+
 class parallelFileTransfer():
         
     def __init__(self, file_path = "", save_path = "") -> None:
@@ -22,7 +25,7 @@ class parallelFileTransfer():
         """Function to send the initial data about the file."""
         
         filename = self.get_filename()
-        metadata = f"{self.CHUNK_COUNT}\n{filename}"
+        metadata = f"{self.CHUNK_COUNT}\n{filename}\n{self.FILE_SIZE}"
      
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.connect((ip, port))
@@ -48,6 +51,7 @@ class parallelFileTransfer():
         """Function to split the file into small chunks."""
 
         file_size = os.path.getsize(file_path)
+        self.FILE_SIZE = file_size
 
         self.CHUNK_SIZE = max(self.CHUNK_SIZE, int(file_size / 16 + 1))
         
@@ -67,12 +71,31 @@ class parallelFileTransfer():
         self.CHUNK_COUNT = len(chunks)
         self.send_metadata(ip, self.PORT)
 
+        start_time = time.time()
+
+        total_sent = 0  # Track the total bytes sent
+
         threads = []
         for i, chunk in enumerate(chunks):
             port = self.PORT + i + 1  # Assign a unique port for each connection
+
             thread = threading.Thread(target=self.send_chunk, args=(chunk, i, ip, port))
             threads.append(thread)
             thread.start()
+
+            total_sent += len(chunk)  # Update total bytes sent
+
+            # Calculate transfer speed and remaining time
+            elapsed_time = time.time() - start_time
+            speed = total_sent / elapsed_time if elapsed_time > 0 else 0
+            percent_complete = (total_sent / self.FILE_SIZE) * 100
+            time_remaining = (self.FILE_SIZE - total_sent) / speed if speed > 0 else 0
+
+            # Display progress on terminal
+            sys.stdout.write(f"\rSent: {total_sent} / {self.FILE_SIZE} bytes ({percent_complete:.2f}%) | "
+                            f"Speed: {speed / (1024 * 1024):.2f} MB/s | "
+                            f"Time remaining: {time_remaining:.2f} s")
+            sys.stdout.flush()
 
         for thread in threads:
             thread.join()
@@ -136,18 +159,23 @@ class parallelFileTransfer():
             self.sender_ip = addr[0]
             self.sender_port = addr[1]
             self.SAVE_PATH += metadata[1]
+            self.FILE_SIZE = metadata[2]
 
             s.close()
         
     def receive_file(self):
         """Main function to receive file chunks over multiple connections."""
-        
-        ip_address = socket.gethostbyname(socket.gethostname())
-        print(f"Ready to Receive File on IP Address: {ip_address} starting from base Port: {self.PORT}")
+
+        ip_address = socket.gethostbyname(socket.getfqdn())
+        print(f"Ready to Receive File on IP Address: {ip_address}")
         
         self.recv_metadata(self.PORT)
         
         chunks = [None] * self.CHUNK_COUNT  # Initialize a list to store received chunks
+
+        start_time = time.time()
+    
+        total_received = 0  # Track the total bytes received
 
         threads = []
         for i in range(self.CHUNK_COUNT):
@@ -155,6 +183,21 @@ class parallelFileTransfer():
             thread = threading.Thread(target=self.start_receiving, args=(port, chunks))
             threads.append(thread)
             thread.start()
+
+            # Update total bytes received
+            total_received += len(chunks[i]) if chunks[i] is not None else 0
+
+            # Calculate transfer speed and remaining time
+            elapsed_time = time.time() - start_time
+            speed = total_received / elapsed_time if elapsed_time > 0 else 0
+            percent_complete = (total_received / self.FILE_SIZE) * 100
+            time_remaining = (self.FILE_SIZE - total_received) / speed if speed > 0 else 0
+
+            # Display progress on terminal
+            sys.stdout.write(f"\rReceived: {total_received} / {self.FILE_SIZE} bytes ({percent_complete:.2f}%) | "
+                            f"Speed: {speed / (1024 * 1024):.2f} MB/s | "
+                            f"Time remaining: {time_remaining:.2f} s")
+            sys.stdout.flush()
 
         for thread in threads:
             thread.join()
