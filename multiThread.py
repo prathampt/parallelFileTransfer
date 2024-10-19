@@ -39,10 +39,21 @@ class parallelFileTransfer():
     def create_connection_pool(self, ip):
         """Create a persistent connection pool."""
 
-        for i in range(min(self.MAX_CONNECTIONS, self.CHUNK_COUNT)):
+        def establish_connection(port):
             conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            conn.connect((ip, self.PORT + i + 1))
+            conn.connect((ip, port))
             self.CONNECTION_POOL.append(conn)
+            print(f"Connection to {ip}:{port} established")
+
+        threads = []
+        for i in range(min(self.MAX_CONNECTIONS, self.CHUNK_COUNT)):
+            port = self.PORT + i + 1
+            t = threading.Thread(target=establish_connection, args=(port,))
+            t.start()
+            threads.append(t)
+        
+        for t in threads:
+            t.join()  # Wait for all threads to finish
 
         print("Connection Pool Created")
 
@@ -129,12 +140,23 @@ class parallelFileTransfer():
     def create_server_pool(self):
         """Create a persistent connection pool."""
 
-        for i in range(min(self.MAX_CONNECTIONS, self.CHUNK_COUNT)):
+        def handle_connection(port):
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.bind(('', self.PORT + i + 1))
-            s.listen()
+            s.bind(('', port))
+            s.listen(1)
             conn, addr = s.accept()
             self.SERVER_POOL.append(conn)
+            print(f"Connection established on port {port} with {addr}")
+
+        threads = []
+        for i in range(min(self.MAX_CONNECTIONS, self.CHUNK_COUNT)):
+            port = self.PORT + i + 1
+            t = threading.Thread(target=handle_connection, args=(port,))
+            t.start()
+            threads.append(t)
+        
+        for t in threads:
+            t.join()  # Wait for all threads to finish
 
         print("Server Pool Created")
 
