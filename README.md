@@ -14,7 +14,7 @@
   	<img src="https://img.shields.io/github/languages/count/prathampt/parallelFileTransfer?style=flat&color=0080ff" alt="repo-language-count">
 </p>
 
-A Python-based file transfer application that accelerates the transmission of large files by utilizing **parallel TCP connections**, breaking files into smaller chunks and transmitting them concurrently. It enhances speed, reliability, and efficiency in file transfers, perfect for scenarios where large data transfers are required across a network.
+A Python-based file transfer application that accelerates the transmission of large files by utilizing **parallel TCP connections**, breaking files into smaller chunks and transmitting them concurrently. It enhances speed, reliability, and efficiency in file transfers, perfect for large data transfers across a congested networks.
 
 ## 🚀 Features
 - **Parallel Transmission**: Utilizes multiple TCP connections to transfer file chunks concurrently.
